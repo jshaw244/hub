@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}Personal Hub{% endblock %}</title>
+    <style>
+      *, *::before, *::after { box-sizing: border-box; }
+      body { margin: 0; font-family: system-ui, sans-serif; background: #f8f9fa; color: #1a1a2e; }
+      a { color: #0078d7; text-decoration: none; }
+      a:hover { text-decoration: underline; }
+
+      /* ── Hub nav: shared chrome across every module (top / app-switcher tier).
+         Sits above each page's own section nav (e.g. the grey pages' .topbar).
+         Module links come from MODULE_SPECS in hub/registry.py, injected as
+         `nav_modules` by the inject_nav_modules context_processor in hub/app.py
+         (which also computes each module's `.active` flag from request.path).
+         This file is the ONE copy of the chrome — Flask searches the app's
+         template folder before any blueprint's, so a module cannot shadow it. */
+      .hub-nav {
+        display: flex; align-items: center; gap: .25rem;
+        background: #12121f; padding: 0 1rem;
+        position: sticky; top: 0; z-index: 100;
+        box-shadow: 0 1px 4px rgba(0,0,0,.2);
+      }
+      .hub-nav .brand {
+        color: #fff; font-weight: 700; font-size: 1rem;
+        padding: .7rem 1rem .7rem 0; margin-right: .5rem;
+        border-right: 1px solid rgba(255,255,255,.15);
+      }
+      .hub-nav .brand:hover { text-decoration: none; color: #fff; }
+      .hub-nav a.module {
+        color: #cfd4e0; padding: .7rem 1rem; font-size: .92rem;
+        border-bottom: 3px solid transparent;
+      }
+      .hub-nav a.module:hover { color: #fff; text-decoration: none; background: rgba(255,255,255,.05); }
+      .hub-nav a.module.active { color: #fff; border-bottom-color: #0078d7; }
+      .hub-nav .module.soon { color: #6b7280; padding: .7rem 1rem; font-size: .92rem; cursor: default; }
+
+      /* Opt-in padding wrapper for pages that flowed content off the old body{margin}.
+         Full-bleed pages (their own .topbar) and the flex chat page skip this. */
+      .hub-content { padding: 2rem; }
+    </style>
+    {% block head %}{% endblock %}
+  </head>
+  <body>
+    <nav class="hub-nav">
+      <a class="brand" href="/hub">Personal Hub</a>
+      {% for m in nav_modules|default([]) %}
+      <a class="module{% if m.active %} active{% endif %}" href="{{ m.url }}">{{ m.name }}</a>
+      {% endfor %}
+    </nav>
+    {% block content %}{% endblock %}
+    {% block scripts %}{% endblock %}
+  </body>
+</html>

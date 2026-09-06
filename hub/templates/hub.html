@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}Personal Hub{% endblock %}
+
+{% block head %}
+<style>
+  .hub-cards {
+    display: grid; gap: 1rem;
+    grid-template-columns: repeat(auto-fill, minmax(18rem, 1fr));
+    max-width: 64rem;
+  }
+  .hub-card {
+    display: block; background: #fff; border: 1px solid #e3e6ea; border-radius: 8px;
+    padding: 1.1rem 1.25rem; color: inherit;
+    transition: border-color .12s, box-shadow .12s;
+  }
+  .hub-card:hover { text-decoration: none; border-color: #0078d7; box-shadow: 0 2px 8px rgba(0,0,0,.06); }
+  .hub-card h2 { margin: 0 0 .4rem; font-size: 1.05rem; }
+  .hub-card p { margin: 0; font-size: .9rem; color: #4b5563; line-height: 1.45; }
+  .hub-card.is-error { border-left: 3px solid #d97706; }
+  .hub-empty { color: #6b7280; font-size: .95rem; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="hub-content">
+  <h1>Personal Hub</h1>
+
+  {% if cards %}
+  <div class="hub-cards">
+    {% for c in cards %}
+    <a class="hub-card{% if c.error %} is-error{% endif %}" href="{{ c.url }}">
+      <h2>{{ c.headline }}</h2>
+      <p>{{ c.detail|default('—') }}</p>
+    </a>
+    {% endfor %}
+  </div>
+  {% else %}
+  <p class="hub-empty">
+    No modules reported a summary. Check the startup log for modules that failed
+    to import — the hub skips them rather than failing to start.
+  </p>
+  {% endif %}
+</div>
+{% endblock %}
