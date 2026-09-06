@@ -68,12 +68,47 @@ pip install -e ..\personal_finance
 pip install -r ..\personal_finance\src\requirements.txt
 ```
 
-Then:
+## Starting it
 
 ```powershell
-$env:ENV_TARGET = 'sandbox'
-python run.py        # http://127.0.0.1:5010/hub
+c:\DATA\hub\scripts\start.ps1
 ```
+
+Defaults to **production** on port 5000, with Plaid live and an ngrok tunnel up —
+the hub is opened to look at real financial data, so that is the useful default.
+It clears stale processes off 5000-5002, runs each module's preflight, starts
+`flask --app hub:create_app`, and opens the browser. Press Enter in that window to
+stop everything.
+
+| Flag | Effect |
+|---|---|
+| `-Target sandbox` / `development` | port 5002 / 5001, that environment's DB and Plaid keys |
+| `-FlaskDebug` | Flask debugger on; **forces ngrok off** — the Werkzeug debugger is remote code execution and must never be tunnelled |
+| `-NoPlaid` | Plaid disabled, no tunnel. For working offline |
+| `-NoBrowser` | don't open browser windows |
+| `-Maintenance` | activated shell for the target, nothing launched |
+
+### Module preflight
+
+Before launching, the script runs `scripts\preflight.ps1` in each module repo that
+has one. Finance's backs up `plaid*.db` and `schema.sql` with rotation, writes a
+session audit line, and opens the `debug_db` terminal. Jobs and ledger have none
+and are skipped.
+
+This split is deliberate: the hub owns what is true of *the app* (venv, ports,
+tunnel, launch, shutdown), and a module owns what is true of *itself*. Backing up
+a SQLite file is not the hub's business, and putting it here would make the hub
+depend on finance's internal layout.
+
+A preflight that fails warns and does not block the launch — being unable to
+rotate a backup is no reason to be unable to open your accounts. Preflight scripts
+append any window PIDs they spawn to the `-PidFile` they are given, so shutdown can
+close windows the launcher never started itself.
+
+### Without the full stack
+
+`python run.py` runs the hub alone on port 5010 — no Plaid, no ngrok, no backups.
+Useful for Jobs or Ledger, neither of which needs a tunnel.
 
 The venv lives here rather than in `personal_finance` because the hub is what
 composes the modules. `pyvenv.cfg` and the `Scripts\` shebangs bake absolute
