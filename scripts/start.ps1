@@ -87,10 +87,69 @@ $port = $portMap[$Target]
 # development and production stay on loopback.
 $flaskHost = if ($Target -eq "sandbox") { "0.0.0.0" } else { "127.0.0.1" }
 
-# Preflight scripts append any window PIDs they spawn here, so shutdown can close
-# windows this script never started itself.
-$PidFile = Join-Path $env:TEMP "hub_module_pids_$PID.txt"
-Remove-Item $PidFile -ErrorAction SilentlyContinue
+# Every window this launcher opens records its PID here, and preflight scripts
+# append theirs too. The name is keyed to the TARGET, not to this process, so the
+# *next* run can find and close what this one left behind — which is the whole
+# point: killing the process on a port does not close the window hosting it.
+$PidFile = Join-Path $env:TEMP "hub_windows_$Target.txt"
+
+function Register-Window {
+    param([int]$ProcessId)
+    if ($ProcessId) { Add-Content -Path $PidFile -Value $ProcessId }
+}
+
+function Close-RecordedWindows {
+    if (-not (Test-Path $PidFile)) { return 0 }
+    $n = 0
+    foreach ($line in Get-Content $PidFile) {
+        if ($line -notmatch '^\d+$') { continue }
+        $procId = [int]$line
+        if ($procId -eq $PID) { continue }
+        $proc = Get-Process -Id $procId -ErrorAction SilentlyContinue
+        # PIDs get reused, so confirm it is still one of ours before killing it.
+        if ($proc -and $proc.ProcessName -match '^(pwsh|powershell|python|ngrok)$') {
+            Write-Host "  Closing leftover $($proc.ProcessName) (PID $procId)" -ForegroundColor Yellow
+            & taskkill /PID $procId /F /T 2>&1 | Out-Null
+            $n++
+        }
+    }
+    Remove-Item $PidFile -ErrorAction SilentlyContinue
+    return $n
+}
+
+# Titles are a secondary net for windows started before this file existed, or by a
+# run whose PID file was deleted. Deliberately strict: matching something loose
+# like "*personal_finance*" would also match an ordinary terminal sitting in that
+# directory, and closing the user's own shell would be a bad way to fail.
+$WindowPattern = '^(hub|personal_finance) \[.+\] - (Flask|ngrok|debug)$'
+
+function Close-TaggedWindows {
+    $stale = Get-Process pwsh, powershell -ErrorAction SilentlyContinue |
+        Where-Object { $_.Id -ne $PID -and $_.MainWindowTitle -match $WindowPattern }
+    foreach ($w in $stale) {
+        Write-Host "  Closing stale window: $($w.MainWindowTitle) (PID $($w.Id))" -ForegroundColor Yellow
+        & taskkill /PID $w.Id /F /T 2>&1 | Out-Null
+    }
+    return ($stale | Measure-Object).Count
+}
+
+# Every window this launcher opens is titled to this shape, which is how stale
+# ones are recognised on the next run. Deliberately strict: matching something
+# loose like "*personal_finance*" would also match an ordinary terminal that
+# happens to be sitting in that directory, and closing the user's own shell would
+# be a genuinely bad way to fail.
+$WindowPattern = '^(hub|personal_finance) \[.+\] - (Flask|ngrok|debug)$'
+
+function Close-TaggedWindows {
+    param([string]$Why)
+    $stale = Get-Process pwsh, powershell -ErrorAction SilentlyContinue |
+        Where-Object { $_.Id -ne $PID -and $_.MainWindowTitle -match $WindowPattern }
+    foreach ($w in $stale) {
+        Write-Host "  $Why window: $($w.MainWindowTitle) (PID $($w.Id))" -ForegroundColor Yellow
+        & taskkill /PID $w.Id /F /T 2>&1 | Out-Null
+    }
+    return ($stale | Measure-Object).Count
+}
 
 Write-Host "`n=== Starting hub [$Target] ===" -ForegroundColor Cyan
 Write-Host "Hub root: $HubRoot"
@@ -140,6 +199,14 @@ foreach ($p in $portMap.Values) {
 }
 Write-Host "Ports 5000-5002 clear." -ForegroundColor Green
 
+# Killing the process on a port does NOT close the window hosting it: the Flask
+# and ngrok windows run with -NoExit so a crash stays readable, which means the
+# shell outlives the command it ran. Without this, those windows pile up one set
+# per restart. ngrok is missed by the port loop above regardless — it listens on
+# 4040, not on 5000-5002.
+$closed = (Close-RecordedWindows) + (Close-TaggedWindows)
+if ($closed) { Write-Host "Closed $closed leftover window(s) from a previous run." -ForegroundColor Green }
+
 # -------------------------------------------------------------------
 # Module preflight
 #
@@ -178,7 +245,13 @@ elseif ($NoPlaid) {
 elseif (Get-Command ngrok -ErrorAction SilentlyContinue) {
     Get-Process ngrok -ErrorAction SilentlyContinue | Stop-Process -Force
     Write-Host "`nStarting ngrok tunnel (port $port)..."
-    $ngrokProc = Start-Process pwsh -ArgumentList "-NoExit", "-Command", "ngrok http $port" -PassThru
+    # Titled so the next run's sweep can recognise and close it. Untitled, this
+    # window survived every restart: it is not on 5000-5002 (ngrok listens on
+    # 4040), so the port cleanup never saw it.
+    $ngrokTitle = "hub [$Target] - ngrok"
+    $ngrokProc = Start-Process pwsh -ArgumentList "-NoExit", "-Command",
+        "`$Host.UI.RawUI.WindowTitle = '$ngrokTitle'; ngrok http $port" -PassThru
+    Register-Window $ngrokProc.Id
     Start-Sleep -Seconds 4
     try {
         $resp = Invoke-RestMethod -Uri "http://127.0.0.1:4040/api/tunnels" -UseBasicParsing
@@ -230,6 +303,7 @@ $flaskArgs = if ($FlaskDebug) {
     @("-NoExit", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", $flaskCmd)
 }
 $flaskProc = Start-Process pwsh -ArgumentList $flaskArgs -PassThru
+Register-Window $flaskProc.Id
 
 Start-Sleep -Seconds 3
 
@@ -279,19 +353,9 @@ try {
         }
     }
 
-    # Backstop for anything that slipped the PID tracking.
-    #
-    # -match (regex) rather than -like (wildcard): the window titles contain a
-    # literal "[", which -like treats as the start of a character class, so
-    # "*hub [*" is an invalid pattern and throws. Escaping it for the wildcard
-    # engine needs a doubled backtick — easy to get wrong again, so use a regex
-    # where \[ means exactly what it looks like.
-    Get-Process pwsh, powershell -ErrorAction SilentlyContinue |
-        Where-Object { $_.MainWindowTitle -match '^hub \[' -or $_.MainWindowTitle -match 'personal_finance' } |
-        ForEach-Object {
-            Write-Host "  Closing titled window: $($_.MainWindowTitle)"
-            & taskkill /PID $_.Id /F /T 2>&1 | Out-Null
-        }
+    # Backstop for anything that slipped the PID tracking — the same sweep the
+    # next startup would do, so a window cannot survive both paths.
+    Close-TaggedWindows | Out-Null
 
     Remove-Item $PidFile -ErrorAction SilentlyContinue
     Write-Host "`n=== All services stopped. ===" -ForegroundColor Green
