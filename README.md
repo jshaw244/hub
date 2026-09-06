@@ -24,11 +24,15 @@ c:\DATA\hub\          <- this repo (pip project + git repo)
 Each module is a separate git repo alongside this one, pip-installed **editable**
 into the hub's venv:
 
-| Module  | Repo                        | Mounted at | Exposes |
-|---------|-----------------------------|------------|---------|
-| Finance | `c:\DATA\personal_finance`  | `/`        | `init_app(app)`, `get_summary()` |
-| Jobs    | `c:\DATA\jobs`              | `/jobs`    | `jobs_bp`, `get_summary()` |
-| Ledger  | `c:\DATA\ledger`            | `/ledger`  | `ledger_bp`, `get_summary()` |
+| Module | Source | Checked out at | Mounted at | Exposes |
+|---|---|---|---|---|
+| Finance | [jshaw244/personal_finance](https://github.com/jshaw244/personal_finance) | `c:\DATA\personal_finance` | `/` | `init_app(app)`, `get_summary()` |
+| Jobs | private repo | `c:\DATA\jobs` | `/jobs` | `jobs_bp`, `get_summary()` |
+| Ledger | [jshaw244/ledger](https://github.com/jshaw244/ledger) | `c:\DATA\ledger` | `/ledger` | `ledger_bp`, `get_summary()` |
+
+Jobs is deliberately private — it holds job-hunt data — so the hub starts without
+it. Any module that is absent is logged and skipped, and the remaining ones run
+normally.
 
 Separate repos, not subdirectories: the hub is a *runtime* composition (editable
 install + blueprint registration), not a filesystem hierarchy. It also keeps
