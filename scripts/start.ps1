@@ -280,8 +280,14 @@ try {
     }
 
     # Backstop for anything that slipped the PID tracking.
+    #
+    # -match (regex) rather than -like (wildcard): the window titles contain a
+    # literal "[", which -like treats as the start of a character class, so
+    # "*hub [*" is an invalid pattern and throws. Escaping it for the wildcard
+    # engine needs a doubled backtick — easy to get wrong again, so use a regex
+    # where \[ means exactly what it looks like.
     Get-Process pwsh, powershell -ErrorAction SilentlyContinue |
-        Where-Object { $_.MainWindowTitle -like "*hub `[*" -or $_.MainWindowTitle -like "*personal_finance*" } |
+        Where-Object { $_.MainWindowTitle -match '^hub \[' -or $_.MainWindowTitle -match 'personal_finance' } |
         ForEach-Object {
             Write-Host "  Closing titled window: $($_.MainWindowTitle)"
             & taskkill /PID $_.Id /F /T 2>&1 | Out-Null
