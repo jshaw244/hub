@@ -204,7 +204,7 @@ Write-Host "Ports 5000-5002 clear." -ForegroundColor Green
 # shell outlives the command it ran. Without this, those windows pile up one set
 # per restart. ngrok is missed by the port loop above regardless — it listens on
 # 4040, not on 5000-5002.
-$closed = (Close-RecordedWindows) + (Close-TaggedWindows)
+$closed = [int](Close-RecordedWindows) + [int](Close-TaggedWindows)
 if ($closed) { Write-Host "Closed $closed leftover window(s) from a previous run." -ForegroundColor Green }
 
 # -------------------------------------------------------------------
@@ -322,9 +322,15 @@ Write-Host "`nPress Enter (or Ctrl+C) here to stop everything.`n" -ForegroundCol
 # -------------------------------------------------------------------
 # Shutdown
 # -------------------------------------------------------------------
-$trackedPids = @($ngrokProc, $flaskProc) | Where-Object { $_ } | ForEach-Object { $_.Id }
+# Both sides forced to arrays with @(). A pipeline that yields exactly one value
+# returns a scalar, not a one-element array — so when ngrok is not installed and
+# only the Flask handle survives the filter, $trackedPids would be an [int], and
+# [int] += [Object[]] throws "does not contain a method named 'op_Addition'".
+# That threw here, before Read-Host, so the try/finally below was never entered
+# and nothing got cleaned up at all.
+$trackedPids = @(@($ngrokProc, $flaskProc) | Where-Object { $_ } | ForEach-Object { $_.Id })
 if (Test-Path $PidFile) {
-    $trackedPids += Get-Content $PidFile | Where-Object { $_ -match '^\d+$' } | ForEach-Object { [int]$_ }
+    $trackedPids += @(Get-Content $PidFile | Where-Object { $_ -match '^\d+$' } | ForEach-Object { [int]$_ })
 }
 
 try {
